@@ -1,0 +1,119 @@
+nativeHeader
+
+#include "glib-object.h"
+
+struct RogirClosure
+{
+  GClosure closure;
+  RogueObject * obj; // Callable
+};
+
+static RogirClosure * Rogir_new_closure (RogueObject * o, gpointer data = 0);
+
+endNativeHeader
+
+nativeCode
+
+static void Rogir_finalize_closure (gpointer notify_data, GClosure * closure)
+{
+  RogirClosure * rclosure;
+  rclosure = (RogirClosure *)closure;
+  RogueObject_release(rclosure->obj);
+}
+
+static RogirClosure * Rogir_new_closure (RogueObject * o, gpointer data)
+{
+  RogirClosure * rclosure;
+
+  GClosure * closure = g_closure_new_simple(sizeof(*rclosure), data);
+  rclosure = (RogirClosure *)closure;
+  rclosure->obj = o;
+
+  RogueObject_retain(o);
+
+  g_closure_add_finalize_notifier(closure, NULL, Rogir_finalize_closure);
+  return rclosure;
+}
+
+endNativeCode
+
+
+augment String
+  METHODS
+    method to->GI::GString
+      local gs = GI::GString()
+      native @|$gs->_self = strdup($this->utf8);
+      return gs
+endAugment
+
+module GI
+
+class RogirBaseMarshaller [essential]
+  GLOBAL METHODS
+    method _marshal (closure: IntPtr, return_value: IntPtr, n_params: Int, param_values: IntPtr, invocation_hint: IntPtr, marshal_data: IntPtr) [essential]
+      local rv : GObject::Value
+      if (return_value) rv = GObject::Value._create_(return_value)
+      local params = GObject::Value[](n_params)
+      local pptr = param_values
+      forEach (pindex in 0..<n_params)
+        params.add(GObject::Value._create_(pptr))
+        pptr += native("sizeof($pptr)")->Int
+      endForEach
+      local o : (Function(GObject::Value[], GObject::Value))
+      native @|RogirClosure * cl = (RogirClosure *)$closure;
+              |$o = ($(o.type))cl->obj;
+      RogirBaseMarshaller._call_raw_handler(o, params, rv)
+
+    method _call_raw_handler (f: (Function(GObject::Value[], GObject::Value)), args: GObject::Value[], rv: GObject::Value)
+      f(args, rv)
+
+    method connect (obj: GObject::Object, detailed_signal: String, closure: (Function(GObject::Value[], GObject::Value)), after=false:Logical)->Int64
+      local rv : Int64
+      local inst = obj._ptr_
+      native @|auto cl = (GClosure*)Rogir_new_closure($closure);
+              |g_closure_set_marshal(cl, (GClosureMarshal)RogueGI__RogirBaseMarshaller___marshal__Int64_Int64_Int32_Int64_Int64_Int64);
+              |$rv = g_signal_connect_closure((gpointer)$inst, $detailed_signal->utf8, cl, $after);
+              |if ($rv == 0) g_closure_unref(cl); // Failure
+      return rv
+endClass
+
+routine RogirThrow (ptr:IntPtr)
+  local msg : String
+  native @|GError * gerr = (GError *)$ptr;
+          |$msg = RogueString_create_from_utf8(gerr->message);
+  throw ::Exception(msg)
+endRoutine
+
+class GString
+  PROPERTIES
+    native "char * _self;"
+    owned = false
+  METHODS
+    method to->::String
+      local r : ::String
+      native @|$r = RogueString_create_from_utf8($this->_self);
+      return r
+    method on_cleanup
+      if (owned)
+        native @|if ($this->_self) {
+                |  free($this->_self);
+                |  $this->_self = NULL;
+                |}
+      endIf
+    method _is_owned_ ()->Logical
+      return native("$this->owned")->Logical
+    method _is_owned_ (v: Logical)
+      native "$this->owned = ($v) ? true : false;"
+  GLOBAL METHODS
+    method _take_ (ptr: IntPtr)->this
+      local r = <<GI::GString>>.create_object<<GI::GString>>()
+      native "$r->_self = (char *)$ptr;"
+      r.owned = true
+      return r
+    method _dup_ (ptr: IntPtr)->this
+      local r = <<GI::GString>>.create_object<<GI::GString>>()
+      native "$r->_self = strdup((char *)$ptr);"
+      r.owned = true
+      return r
+endClass
+
