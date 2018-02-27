@@ -1,0 +1,65 @@
+Rogir
+-----
+This is Rogir, which is a GObject Introspection code generator for Rogue.
+You can point it at a GIR and it will generate a bunch of Rogue code to
+wrap it.
+
+It was hacked together pretty quickly and is pretty ugly.  Lots of stuff
+probably doesn't work right and lots of stuff isn't implemented or isn't
+implemented right.  For example:
+
+* Ownership transfer, especially of records/unions.
+* Arrays.
+* Constants should use the new module-scoped globals but don't.
+  (Ironic since this project is why they exist.)
+* Nice mechanisms to drop problematic members, reshape constructors, etc.
+* Interfaces.
+* Safe downcasting.
+* Primitive types which don't map perfectly into Rogue types can
+  probably use improvement.
+* Non-LP64 platforms.
+* Etc., etc.
+
+That said, it does some stuff okay, and it works well enough to meet my
+initial goal, which is being able to write a hello world in GTK:
+
+  $include "gi_gen.rogue"
+
+  nativeHeader #include "gtk/gtk.h"
+  # Why the GI for GTK doesn't mention this header, I have no idea.
+
+  native @|gtk_init (0,0);
+  # Arrays aren't currently supported, so have to do this with "native".
+
+  local w = Gtk::Window(Gtk::WindowType.TOPLEVEL)
+
+  local b = Gtk::Button.new_with_label("Hello, World!")
+
+  b.connect_clicked( ()=> println("CLICK!") )
+  # Typed signal connection.  Built on a lower level signal mechanism.
+
+  w.add(b)
+  b.show()
+  w.show()
+
+  Gtk::main()
+
+Generate the GI wrapping code:
+  python rogir.py Gtk 3.0 gi_gen.rogue
+
+And compiling is easy with the new pkg-config support in Rogue:
+  roguec test_gtk.rogue --pkg-config=gtk+-3.0 --main
+
+
+Why Is It Written in Python?
+----------------------------
+It's very common to write GI code generators for language X in language X.
+This seems to have led to a lot of replication and a lot partially-capable
+and mostly-abandoned code generators.  Python is a bit of a lingua franca,
+so in an ideal world, maybe this will be helpful for people writing code
+generators for other languages.  At least if it got cleaned up some (okay,
+got cleaned up a lot).  The Rogue-specific parts are mostly done as
+mixins (with the exception of some stuff grossly stuck into the type
+system).
+
+Anyone interested in some collaboration, please file an issue.
